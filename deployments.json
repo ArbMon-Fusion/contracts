@@ -1,0 +1,16 @@
+{
+  "arbSepolia": {
+    "chainId": 421614,
+    "name": "Arbitrum Sepolia",
+    "limitOrderProtocol": "0xfde2d93A9D538940A9899CA6bEFa2517D9A0B23f",
+    "escrowFactory": "0x06770B86ABee7B3991f235BE4b6d920862979e13",
+    "resolver": "0xF1bF3e727Cb948C19d9D3b8c0a73cDf0a822bb04"
+  },
+  "monad": {
+    "chainId": 10143,
+    "name": "Monad",
+    "limitOrderProtocol": "0xfde2d93A9D538940A9899CA6bEFa2517D9A0B23f",
+    "escrowFactory": "0x06770B86ABee7B3991f235BE4b6d920862979e13",
+    "resolver": "0xF1bF3e727Cb948C19d9D3b8c0a73cDf0a822bb04"
+  }
+}
