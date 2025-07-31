@@ -9,9 +9,12 @@ dotenv.config()
 
 import {
     computeAddress,
+    Contract,
     ContractFactory,
     JsonRpcProvider,
+    MaxUint256,
     parseEther,
+    parseUnits,
     randomBytes,
     Wallet as SignerWallet
 } from 'ethers'
@@ -30,12 +33,14 @@ const { Address } = Sdk
 
 jest.setTimeout(1000 * 60 * 5) // 5 minutes for real testnet calls
 
-const userPk = process.env.DEPLOYER_PRIVATE_KEY!.toString()
+const userPk = process.env.USER_PRIVATE_KEY!.toString()
 const resolverPk = process.env.DEPLOYER_PRIVATE_KEY!.toString()
+const WETH = "0x980B62Da83eFf3D4576C647993b0c1D7faf17c73" // Arbitrum Sepolia WETH
+const WMON = "0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701" // Arbitrum Sepolia WMON
 
 describe('Arbitrum Sepolia to Monad Testnet Swap', () => {
-    const srcChainId = config.chain.source.chainId as any     // 421614
-    const dstChainId = config.chain.destination.chainId as any // 10143
+    const srcChainId = config.chain.source.chainId      // 421614
+    const dstChainId = config.chain.destination.chainId // 10143
 
     type Chain = {
         node?: CreateServerReturnType | undefined
@@ -56,6 +61,8 @@ describe('Arbitrum Sepolia to Monad Testnet Swap', () => {
     let dstFactory: EscrowFactory
     let srcResolverContract: Wallet
     let dstResolverContract: Wallet
+
+
 
     let srcTimestamp: bigint
 
@@ -93,34 +100,107 @@ describe('Arbitrum Sepolia to Monad Testnet Swap', () => {
         srcFactory = new EscrowFactory(src.provider, src.escrowFactory)
         dstFactory = new EscrowFactory(dst.provider, dst.escrowFactory)
 
+        srcResolverContract = await Wallet.fromAddress(src.resolver, src.provider)
+        dstResolverContract = await Wallet.fromAddress(dst.resolver, dst.provider)
+
+
+
         // Fund accounts on forks if needed
         if (config.chain.source.createFork) {
-            console.log('💰 Funding user with ETH on fork...')
+            console.log('💰 Funding user with WETH on fork...')
+            // Impersonate WETH rich account to transfer WETH to user
+            await src.provider.send('anvil_impersonateAccount', ['0xd7512902999b34af2B2940Eb8827CC8345DC77C6'])
+            const wethRichAccount = await src.provider.getSigner('0xd7512902999b34af2B2940Eb8827CC8345DC77C6')
+
+            // Transfer WETH tokens to user
+            const wethContract = new Contract(
+                WETH,
+                [
+                    'function transfer(address to, uint256 amount) returns (bool)',
+                    'function balanceOf(address) view returns (uint256)'
+                ],
+                wethRichAccount
+            )
+
+            console.log(`User balance before getting 10 weth: ${await srcChainUser.tokenBalance(WETH)}`)
+            const wethRichAddress = await wethRichAccount.getAddress()
+            console.log(`Wethrich account token balance before giving 10 weth: ${await wethContract.balanceOf(wethRichAddress)}`)
+
+
+            await srcChainUser.topUpFromDonor(
+                config.chain.source.tokens.WETH.address,
+                config.chain.source.tokens.WETH.donor,
+                parseUnits('10', 18)
+            )
+
+            await srcChainUser.approveToken(
+                config.chain.source.tokens.WETH.address,
+                config.chain.source.limitOrderProtocol,
+                MaxUint256
+            )
+
+
+            // const wethTransferTx = await wethContract.transfer(await srcChainUser.getAddress(), parseEther('10'))
+            // await wethTransferTx.wait()
+
+
+
+            console.log('✅ User funded with WETH on Arbitrum Sepolia fork')
+
             // Impersonate a rich account to fund test accounts
             await src.provider.send('anvil_impersonateAccount', ['0x980B62Da83eFf3D4576C647993b0c1D7faf17c73'])
-            const richAccount = await src.provider.getSigner('0x980B62Da83eFf3D4576C647993b0c1D7faf17c73')
+            const richAccount1 = await src.provider.getSigner('0x980B62Da83eFf3D4576C647993b0c1D7faf17c73')
 
-            const fundingTx = await richAccount.sendTransaction({
+            const fundingTx = await richAccount1.sendTransaction({
                 to: await srcChainUser.getAddress(),
                 value: parseEther('100')
             })
             await fundingTx.wait()
+
+            console.log('✅ User funded with WETH and ETH on Arbitrum Sepolia fork')
+            console.log(`User balance after getting 10 weth: ${await srcChainUser.tokenBalance(WETH)}`)
         }
 
         if (config.chain.destination.createFork) {
-            console.log('💰 Funding resolver with MON on fork...')
-            await dst.provider.send('anvil_impersonateAccount', ['0x760afe86e5de5fa0ee542fc7b7b713e1c5425701'])
-           const richAccount = await dst.provider.getSigner('0x760afe86e5de5fa0ee542fc7b7b713e1c5425701')
+            console.log('💰 Funding resolver with WMON on fork...')
+            // Impersonate WMON rich account to transfer WMON to resolver
+            await dst.provider.send('anvil_impersonateAccount', ['0xFA735CcA8424e4eF30980653bf9015331d9929dB'])
+            const wmonRichAccount = await dst.provider.getSigner('0xFA735CcA8424e4eF30980653bf9015331d9929dB')
 
-            const fundingTx2 = await richAccount.sendTransaction({
+            // Transfer WMON tokens to resolver (assuming WMON token at wrapped native address)
+            const wmonContract = new Contract(
+                WMON,
+                ['function transfer(address to, uint256 amount) returns (bool)'],
+                wmonRichAccount
+            )
+
+            const wmonTransferTx = await wmonContract.transfer(await dstChainResolver.getAddress(), parseEther('10'))
+            await wmonTransferTx.wait()
+
+        
+
+            // Impersonate a rich account to fund test accounts
+
+            await dst.provider.send('anvil_impersonateAccount', ['0x760afe86e5de5fa0ee542fc7b7b713e1c5425701'])
+            const richAccount2 = await dst.provider.getSigner('0x760afe86e5de5fa0ee542fc7b7b713e1c5425701')
+
+            const fundingTx2 = await richAccount2.sendTransaction({
                 to: await dstChainResolver.getAddress(),
                 value: parseEther('100')
             })
             await fundingTx2.wait()
+
+            await dstResolverContract.topUpFromDonor(
+                config.chain.destination.tokens.WMON.address,
+                config.chain.destination.tokens.WMON.donor,
+                parseUnits('20', 18)
+            )
+
+            await dstChainResolver.transfer(dst.resolver, parseEther('1'))
+            await dstResolverContract.unlimitedApprove(config.chain.destination.tokens.WMON.address, dst.escrowFactory)
         }
 
-        srcResolverContract = await Wallet.fromAddress(src.resolver, src.provider)
-        dstResolverContract = await Wallet.fromAddress(dst.resolver, dst.provider)
+
 
         srcTimestamp = BigInt((await src.provider.getBlock('latest'))!.timestamp)
 
@@ -137,20 +217,35 @@ describe('Arbitrum Sepolia to Monad Testnet Swap', () => {
         await Promise.all([src?.node?.stop(), dst?.node?.stop()].filter(Boolean))
     })
 
-    describe('ETH → MON Cross-Chain Swap', () => {
-        it('should swap ETH (Arbitrum) → MON (Monad)', async () => {
-            console.log('\n🔄 Starting ETH → MON cross-chain swap...')
+    describe('WETH → WMON Cross-Chain Swap', () => {
+        it('should swap WETH (Arbitrum) → WMON (Monad)', async () => {
+            console.log('\n🔄 Starting WETH → WMON cross-chain swap...')
 
-            // Get initial balances
-            const initialSrcBalance = await srcChainUser.provider.getBalance(await srcChainUser.getAddress())
-            const initialDstBalance = await dstChainUser.provider.getBalance(await dstChainUser.getAddress())
+            // Get initial token balances
+            const wethContract = new Contract(
+                WETH,
+                ['function balanceOf(address) view returns (uint256)'],
+                srcChainUser.provider
+            )
+            const wmonContract = new Contract(
+                WMON,
+                ['function balanceOf(address) view returns (uint256)'],
+                dstChainUser.provider
+            )
 
-            console.log(`💰 Initial Arbitrum ETH balance: ${initialSrcBalance}`)
-            console.log(`💰 Initial Monad MON balance: ${initialDstBalance}`)
+            const initialSrcBalance = await wethContract.balanceOf(await srcChainUser.getAddress())
+            const initialDstBalance = await wmonContract.balanceOf(await dstChainUser.getAddress())
+
+
+            console.log("resolver address:", await dstChainResolver.getAddress())
+            console.log("resolver initial WMON token balance:", await wmonContract.balanceOf(await dstChainResolver.getAddress()))
+
+            console.log(`💰 Initial Arbitrum WETH balance: ${initialSrcBalance}`)
+            console.log(`💰 Initial Monad WMON balance: ${initialDstBalance}`)
 
             // User creates cross-chain order
             const secret = uint8ArrayToHex(randomBytes(32))
-            const swapAmount = parseEther('0.01') // Swap 0.01 ETH for 0.01 MON
+            const swapAmount = parseEther('0.01') // Swap 0.01 WETH for 0.01 WMON
 
             console.log('📝 Creating cross-chain order...')
             const order = Sdk.CrossChainOrder.new(
@@ -158,21 +253,30 @@ describe('Arbitrum Sepolia to Monad Testnet Swap', () => {
                 {
                     salt: Sdk.randBigInt(1000n),
                     maker: new Address(await srcChainUser.getAddress()),
-                    makingAmount: swapAmount,           // 0.01 ETH
-                    takingAmount: swapAmount,           // 0.01 MON (1:1 for demo)
-                    makerAsset: new Address('0x0000000000000000000000000000000000000000'), // Native ETH
-                    takerAsset: new Address('0x0000000000000000000000000000000000000000')  // Native MON
+                    makingAmount: swapAmount,           // 0.01 WETH
+                    takingAmount: swapAmount,           // 0.01 WMON (1:1 for demo)
+                    makerAsset: new Address(WETH), // WETH token
+                    takerAsset: new Address(WMON)  // WMON token
                 },
                 {
                     hashLock: Sdk.HashLock.forSingleFill(secret),
                     timeLocks: Sdk.TimeLocks.new({
-                        srcWithdrawal: 60n,         // 1 minute
-                        srcPublicWithdrawal: 300n,  // 5 minutes
-                        srcCancellation: 360n,      // 6 minutes
-                        srcPublicCancellation: 420n, // 7 minutes
-                        dstWithdrawal: 60n,         // 1 minute
-                        dstPublicWithdrawal: 240n,  // 4 minutes
-                        dstCancellation: 300n       // 5 minutes
+                        // srcWithdrawal: 60n,         // 1 minute
+                        // srcPublicWithdrawal: 300n,  // 5 minutes
+                        // srcCancellation: 360n,      // 6 minutes
+                        // srcPublicCancellation: 420n, // 7 minutes
+                        // dstWithdrawal: 60n,         // 1 minute
+                        // dstPublicWithdrawal: 240n,  // 4 minutes
+                        // dstCancellation: 300n       // 5 minutes
+
+
+                        srcWithdrawal: 10n, // 10sec finality lock for test
+                        srcPublicWithdrawal: 120n,
+                        srcCancellation: 121n,
+                        srcPublicCancellation: 122n,
+                        dstWithdrawal: 10n,
+                        dstPublicWithdrawal: 100n,
+                        dstCancellation: 101n
                     }),
                     srcChainId,
                     dstChainId,
@@ -258,40 +362,40 @@ describe('Arbitrum Sepolia to Monad Testnet Swap', () => {
                 ESCROW_DST_IMPLEMENTATION
             )
 
-            // User withdraws MON from destination chain
-            console.log(`💸 User withdrawing MON from Monad escrow: ${dstEscrowAddress}`)
+            // User withdraws WMON from destination chain
+            console.log(`💸 User withdrawing WMON from Monad escrow: ${dstEscrowAddress}`)
             await dstChainResolver.send(
                 resolverContract.withdraw('dst', dstEscrowAddress, secret, dstImmutables.withDeployedAt(dstDeployedAt))
             )
 
-            // Resolver withdraws ETH from source chain
-            console.log(`💸 Resolver withdrawing ETH from Arbitrum escrow: ${srcEscrowAddress}`)
+            // Resolver withdraws WETH from source chain
+            console.log(`💸 Resolver withdrawing WETH from Arbitrum escrow: ${srcEscrowAddress}`)
             const { txHash: resolverWithdrawHash } = await srcChainResolver.send(
                 resolverContract.withdraw('src', srcEscrowAddress, secret, srcEscrowEvent[0])
             )
-            console.log(`✅ Resolver withdrew ETH: ${resolverWithdrawHash}`)
+            console.log(`✅ Resolver withdrew WETH: ${resolverWithdrawHash}`)
 
-            // Check final balances
-            const finalSrcBalance = await srcChainUser.provider.getBalance(await srcChainUser.getAddress())
-            const finalDstBalance = await dstChainUser.provider.getBalance(await dstChainUser.getAddress())
+            // Check final token balances
+            const finalSrcBalance = await wethContract.balanceOf(await srcChainUser.getAddress())
+            const finalDstBalance = await wmonContract.balanceOf(await dstChainUser.getAddress())
 
-            console.log(`💰 Final Arbitrum ETH balance: ${finalSrcBalance}`)
-            console.log(`💰 Final Monad MON balance: ${finalDstBalance}`)
+            console.log(`💰 Final Arbitrum WETH balance: ${finalSrcBalance}`)
+            console.log(`💰 Final Monad WMON balance: ${finalDstBalance}`)
 
-            // Verify swap occurred (allowing for gas costs)
+            // Verify swap occurred
             const srcBalanceChange = initialSrcBalance - finalSrcBalance
             const dstBalanceChange = finalDstBalance - initialDstBalance
 
-            console.log(`📊 ETH spent (including gas): ${srcBalanceChange}`)
-            console.log(`📊 MON received: ${dstBalanceChange}`)
+            console.log(`📊 WETH spent: ${srcBalanceChange}`)
+            console.log(`📊 WMON received: ${dstBalanceChange}`)
 
-            // User should have received MON on destination
-            expect(dstBalanceChange).toBeGreaterThan(parseEther('0.009')) // Received close to 0.01 MON
+            // User should have received WMON on destination
+            expect(dstBalanceChange).toBeGreaterThan(parseEther('0.009')) // Received close to 0.01 WMON
 
-            // User should have spent ETH on source (including gas, so more than just swap amount)
-            expect(srcBalanceChange).toBeGreaterThan(swapAmount)
+            // User should have spent WETH on source
+            expect(srcBalanceChange).toBeGreaterThanOrEqual(swapAmount)
 
-            console.log('🎉 ETH → MON cross-chain swap completed successfully!')
+            console.log('🎉 WETH → WMON cross-chain swap completed successfully!')
         }, 300000) // 5 minute timeout for real testnet
     })
 })

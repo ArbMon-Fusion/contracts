@@ -12,8 +12,8 @@ importers:
         specifier: 3.1.0
         version: 3.1.0
       '@1inch/cross-chain-sdk':
-        specifier: v0.1.15-rc.0
-        version: 0.1.15-rc.0
+        specifier: file:../Fusion_sdks/cross-chain-sdk
+        version: file:../Fusion_sdks/cross-chain-sdk
       dotenv:
         specifier: 16.4.5
         version: 16.4.5
@@ -136,8 +136,8 @@ packages:
       assert:
         optional: true
 
-  '@1inch/cross-chain-sdk@0.1.15-rc.0':
-    resolution: {integrity: sha512-MYVF9vUTrxA/T3BGS5u/tpQWjLX2r1t/Ls3zz0t06lSfTGoAzCONFuGW/OfZ5olVAw+rHLK9k/t5sMt3jW/HGg==}
+  '@1inch/cross-chain-sdk@file:../Fusion_sdks/cross-chain-sdk':
+    resolution: {directory: ../Fusion_sdks/cross-chain-sdk, type: directory}
     engines: {node: '>=18.16.0'}
     peerDependencies:
       assert: ^2.0.0
@@ -167,8 +167,8 @@ packages:
       prettier: ^3.3.2
       typescript: ^5.5.2
 
-  '@1inch/fusion-sdk@2.1.11-rc.2':
-    resolution: {integrity: sha512-OuCS58rj1TolXQA/bO7TI84h/ncm7YjNlA6Fa1L5Rc5qCtdfA3uCdPn8GITotZ2aR6sz4LopGiVxd227k5ltww==}
+  '@1inch/fusion-sdk@file:../Fusion_sdks/fusion-sdk':
+    resolution: {directory: ../Fusion_sdks/fusion-sdk, type: directory}
     peerDependencies:
       assert: ^2.0.0
       axios: '>=1 <2'
@@ -3012,10 +3012,10 @@ snapshots:
 
   '@1inch/byte-utils@3.1.0': {}
 
-  '@1inch/cross-chain-sdk@0.1.15-rc.0':
+  '@1inch/cross-chain-sdk@file:../Fusion_sdks/cross-chain-sdk':
     dependencies:
       '@1inch/byte-utils': 2.6.0
-      '@1inch/fusion-sdk': 2.1.11-rc.2(axios@1.8.2)
+      '@1inch/fusion-sdk': file:../Fusion_sdks/fusion-sdk(axios@1.8.2)
       '@openzeppelin/merkle-tree': 1.0.7
       axios: 1.8.2
       ecies-25519: 1.3.1
@@ -3049,12 +3049,12 @@ snapshots:
       semver: 7.7.2
       typescript: 5.5.2
 
-  '@1inch/fusion-sdk@2.1.11-rc.2(axios@1.8.2)':
+  '@1inch/fusion-sdk@file:../Fusion_sdks/fusion-sdk(axios@1.8.2)':
     dependencies:
       '@1inch/byte-utils': 2.3.0
       '@1inch/limit-order-sdk': 4.13.0(axios@1.8.2)
       ethers: 6.13.2
-      tslib: 2.6.3
+      tslib: 2.8.1
       ws: 8.18.3
     optionalDependencies:
       axios: 1.8.2
@@ -6210,8 +6210,7 @@ snapshots:
 
   tslib@2.7.0: {}
 
-  tslib@2.8.1:
-    optional: true
+  tslib@2.8.1: {}
 
   tsx@4.20.3:
     dependencies:

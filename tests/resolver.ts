@@ -1,4 +1,4 @@
-import {Interface, Signature, TransactionRequest} from 'ethers'
+import { Interface, Signature, TransactionRequest } from 'ethers'
 import Sdk from '@1inch/cross-chain-sdk'
 import Contract from '../dist/contracts/Resolver.sol/Resolver.json'
 
@@ -8,7 +8,7 @@ export class Resolver {
     constructor(
         public readonly srcAddress: string,
         public readonly dstAddress: string
-    ) {}
+    ) { }
 
     public deploySrc(
         chainId: number,
@@ -18,10 +18,20 @@ export class Resolver {
         amount: bigint,
         hashLock = order.escrowExtension.hashLockInfo
     ): TransactionRequest {
-        const {r, yParityAndS: vs} = Signature.from(signature)
-        const {args, trait} = takerTraits.encode()
+        const { r, yParityAndS: vs } = Signature.from(signature)
+        const { args, trait } = takerTraits.encode()
         const immutables = order.toSrcImmutables(chainId, new Sdk.Address(this.srcAddress), amount, hashLock)
 
+        console.log("srcAddress:", this.srcAddress);
+        console.log("dstAddress:", this.dstAddress);
+        console.log('Deploying src escrow with immutables:....', immutables);
+        //console remaining variables
+        console.log('Order:', order);
+        console.log('Signature:', signature);
+        console.log('R:', r);
+        console.log('VS:', vs); 
+        console.log('Amount:', amount);
+        console.log('Trait:', trait);
         return {
             to: this.srcAddress,
             data: this.iface.encodeFunctionData('deploySrc', [
@@ -43,6 +53,9 @@ export class Resolver {
          */
         immutables: Sdk.Immutables
     ): TransactionRequest {
+
+        console.log('Deploying dst escrow with immutables:....', immutables);
+
         return {
             to: this.dstAddress,
             data: this.iface.encodeFunctionData('deployDst', [
