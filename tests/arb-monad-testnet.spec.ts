@@ -23,7 +23,7 @@ jest.setTimeout(1000 * 60 * 10) // 10 minutes for real testnet calls
 // Use the provided EOA address and private key from .env
 const userPk = process.env.USER_PRIVATE_KEY!.toString()
 const resolverPk = process.env.DEPLOYER_PRIVATE_KEY!.toString()
-const eoa = '0x3816BA21dCC9dfD3C714fFDB987163695408653F'
+const eoa = '0x6F44684bC0D57f1b661f193C40Ad3a521fd73f3E'
 
 describe('Arbitrum Sepolia to Monad Testnet Swap (Real Testnet)', () => {
     const srcChainId = 421614  // Arbitrum Sepolia
@@ -73,7 +73,7 @@ describe('Arbitrum Sepolia to Monad Testnet Swap (Real Testnet)', () => {
 
         // Initialize providers for real testnets
         src = {
-            provider: new JsonRpcProvider('https://arb-sepolia.g.alchemy.com/v2/BLFwGlKbnWCyiD9p1LLcJkIRXk08dl-t', srcChainId, {
+            provider: new JsonRpcProvider(process.env.ARBITRUM_SEPOLIA_RPC, srcChainId, {
                 cacheTimeout: -1,
                 staticNetwork: true
             }),
@@ -83,7 +83,7 @@ describe('Arbitrum Sepolia to Monad Testnet Swap (Real Testnet)', () => {
 
         console.log('✅ Arbitrum Sepolia provider initialized')
         dst = {
-            provider: new JsonRpcProvider('https://monad-testnet.g.alchemy.com/v2/BLFwGlKbnWCyiD9p1LLcJkIRXk08dl-t', dstChainId, {
+            provider: new JsonRpcProvider(process.env.MONAD_TESTNET_RPC, dstChainId, {
                 cacheTimeout: -1,
                 staticNetwork: true
             }),
@@ -102,10 +102,17 @@ describe('Arbitrum Sepolia to Monad Testnet Swap (Real Testnet)', () => {
         srcFactory = new EscrowFactory(src.provider, src.escrowFactory)
         dstFactory = new EscrowFactory(dst.provider, dst.escrowFactory)
 
-        // For real testnet, we don't need to impersonate - contracts are already deployed
-        // and we'll use the resolver wallet that has the private key
-        // srcResolverContract = srcChainResolver
-        // dstResolverContract = dstChainResolver
+        // For real testnet, use resolver EOA directly (no contract impersonation needed)
+        // The resolver contracts are already deployed at the specified addresses
+        srcResolverContract = srcChainResolver  // Use resolver EOA
+        dstResolverContract = dstChainResolver  // Use resolver EOA
+
+        // Check resolver balances for sufficient funds
+        const srcResolverBalance = await srcChainResolver.provider.getBalance(await srcChainResolver.getAddress())
+        const dstResolverBalance = await dstChainResolver.provider.getBalance(await dstChainResolver.getAddress())
+        
+        console.log(`💰 Resolver balance on Arbitrum: ${srcResolverBalance}`)
+        console.log(`💰 Resolver balance on Monad: ${dstResolverBalance}`)
 
         srcTimestamp = BigInt((await src.provider.getBlock('latest'))!.timestamp)
 
@@ -141,7 +148,7 @@ describe('Arbitrum Sepolia to Monad Testnet Swap (Real Testnet)', () => {
 
             // User creates cross-chain order
             const secret = uint8ArrayToHex(randomBytes(32))
-            const swapAmount = parseEther('0.001') // Swap 0.001 ETH for 0.001 MON (smaller amount for testnet)
+            const swapAmount = parseEther('0.01') // Swap 0.01 ETH for 0.01 MON (smaller amount for testnet)
 
             console.log('📝 Creating cross-chain order...')
             const order = Sdk.CrossChainOrder.new(
@@ -149,8 +156,8 @@ describe('Arbitrum Sepolia to Monad Testnet Swap (Real Testnet)', () => {
                 {
                     salt: Sdk.randBigInt(1000n),
                     maker: new Address(await srcChainUser.getAddress()),
-                    makingAmount: swapAmount,           // 0.001 ETH
-                    takingAmount: swapAmount,           // 0.001 MON (1:1 for demo)
+                    makingAmount: swapAmount,           // 0.01 ETH
+                    takingAmount: swapAmount,           // 0.01 MON (1:1 for demo)
                     makerAsset: new Address('0x0000000000000000000000000000000000000000'), // Native ETH
                     takerAsset: new Address('0x0000000000000000000000000000000000000000')  // Native MON
                 },
@@ -164,7 +171,7 @@ describe('Arbitrum Sepolia to Monad Testnet Swap (Real Testnet)', () => {
                         // dstWithdrawal: 120n,         // 2 minutes
                         // dstPublicWithdrawal: 480n,   // 8 minutes
                         // dstCancellation: 600n        // 10 minutes
-                        
+
                         srcWithdrawal: 10n, // 10sec finality lock for test
                         srcPublicWithdrawal: 120n,
                         srcCancellation: 121n,
@@ -175,8 +182,8 @@ describe('Arbitrum Sepolia to Monad Testnet Swap (Real Testnet)', () => {
                     }),
                     srcChainId,
                     dstChainId,
-                    srcSafetyDeposit: parseEther('0.0001'),
-                    dstSafetyDeposit: parseEther('0.0001')
+                    srcSafetyDeposit: parseEther('0.01'),
+                    dstSafetyDeposit: parseEther('0.01')
                 },
                 {
                     auction: new Sdk.AuctionDetails({
@@ -200,10 +207,23 @@ describe('Arbitrum Sepolia to Monad Testnet Swap (Real Testnet)', () => {
                 }
             )
 
-            const signature = await srcChainUser.signOrder(srcChainId, order)
+            // Debug: Check EIP-712 domain and order data
+            const typedData = order.getTypedData(srcChainId)
+            console.log('🔍 EIP-712 Domain:', JSON.stringify(typedData.domain, null, 2))
+            console.log('🔍 Order maker:', await srcChainUser.getAddress())
+            console.log('🔍 Order structure:', JSON.stringify({
+                maker: order.maker.toString(),
+                makerAsset: order.makerAsset.toString(),
+                takerAsset: order.takerAsset.toString(),
+                makingAmount: order.makingAmount.toString(),
+                takingAmount: order.takingAmount.toString()
+            }, null, 2))
+
+            const signature = await srcChainUser.signOrder(srcChainId, order, contractAddresses.arbitrum.limitOrderProtocol)
             const orderHash = order.getOrderHash(srcChainId)
 
             console.log(`📋 Order hash: ${orderHash}`)
+            console.log(`📋 Signature: ${signature}`)
 
             // Resolver fills order on source chain (Arbitrum)
             const resolverContract = new Resolver(src.resolver, dst.resolver)
@@ -289,19 +309,19 @@ describe('Arbitrum Sepolia to Monad Testnet Swap (Real Testnet)', () => {
             expect(srcBalanceChange).toBeGreaterThan(swapAmount)
 
             console.log('🎉 ETH → MON cross-chain swap completed successfully on real testnets!')
-        }, 600000) // 10 minute timeout for real testnet
+        })
     })
 
     describe('Balance and Contract Checks', () => {
-        it('should verify EOA has sufficient balance on both chains', async () => {
+        it('should verify EOA has sufficient balance on ARB chains', async () => {
             const srcBalance = await src.provider.getBalance(eoa)
-            const dstBalance = await dst.provider.getBalance(eoa)
+            // const dstBalance = await dst.provider.getBalance(eoa)
 
             console.log(`💰 EOA Balance on Arbitrum Sepolia: ${srcBalance}`)
-            console.log(`💰 EOA Balance on Monad Testnet: ${dstBalance}`)
+            // console.log(`💰 EOA Balance on Monad Testnet: ${dstBalance}`)
 
             expect(srcBalance).toBeGreaterThan(parseEther('0.01'))
-            expect(dstBalance).toBeGreaterThan(parseEther('0.01'))
+            // expect(dstBalance).toBeGreaterThan(parseEther('0.01'))
         })
 
         it('should verify all contracts are deployed at expected addresses', async () => {

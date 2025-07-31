@@ -82,8 +82,13 @@ export class Wallet {
         await tx.wait()
     }
 
-    public async signOrder(srcChainId: number, order: Sdk.CrossChainOrder): Promise<string> {
+    public async signOrder(srcChainId: number, order: Sdk.CrossChainOrder, lopAddress?: string): Promise<string> {
         const typedData = order.getTypedData(srcChainId)
+        
+        // Override LOP address for custom testnets
+        if (lopAddress) {
+            typedData.domain.verifyingContract = lopAddress
+        }
 
         return this.signer.signTypedData(
             typedData.domain,
@@ -96,7 +101,7 @@ export class Wallet {
 
         console.log('Sending transaction with params....:', param);
 
-        const res = await this.signer.sendTransaction({ ...param, gasLimit: 10_000_000, from: this.getAddress() })
+        const res = await this.signer.sendTransaction({ ...param, gasLimit: 30_000_000, from: this.getAddress() })
         const receipt = await res.wait(1)
 
         if (receipt && receipt.status) {

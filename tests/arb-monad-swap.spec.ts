@@ -81,16 +81,9 @@ describe('Arbitrum Sepolia to Monad Testnet Swap', () => {
     beforeAll(async () => {
         console.log('🚀 Setting up Arbitrum Sepolia → Monad Testnet test...')
 
-        try {
             // Initialize both chains (will deploy contracts automatically)
-            ;[src, dst] = await Promise.all([
-                initChain(config.chain.source),
-                initChain(config.chain.destination)
-            ])
-        } catch (error) {
-            console.error('Setup failed:', error)
-            throw error
-        }
+            ;[src, dst] = await Promise.all([initChain(config.chain.source), initChain(config.chain.destination)])
+
 
         srcChainUser = new Wallet(userPk, src.provider)
         dstChainUser = new Wallet(userPk, dst.provider)
@@ -143,8 +136,6 @@ describe('Arbitrum Sepolia to Monad Testnet Swap', () => {
             // const wethTransferTx = await wethContract.transfer(await srcChainUser.getAddress(), parseEther('10'))
             // await wethTransferTx.wait()
 
-
-
             console.log('✅ User funded with WETH on Arbitrum Sepolia fork')
 
             // Impersonate a rich account to fund test accounts
@@ -170,15 +161,17 @@ describe('Arbitrum Sepolia to Monad Testnet Swap', () => {
             // Transfer WMON tokens to resolver (assuming WMON token at wrapped native address)
             const wmonContract = new Contract(
                 WMON,
-                ['function transfer(address to, uint256 amount) returns (bool)'],
+                [
+                    'function transfer(address to, uint256 amount) returns (bool)',
+                    'function balanceOf(address) view returns (uint256)'
+                ],
                 wmonRichAccount
             )
 
             const wmonTransferTx = await wmonContract.transfer(await dstChainResolver.getAddress(), parseEther('10'))
             await wmonTransferTx.wait()
 
-        
-
+            console.log(`dstChainResolver account token balance after taking 10 wmon: ${await wmonContract.balanceOf(dstChainResolver.getAddress())}`)
             // Impersonate a rich account to fund test accounts
 
             await dst.provider.send('anvil_impersonateAccount', ['0x760afe86e5de5fa0ee542fc7b7b713e1c5425701'])
@@ -396,7 +389,7 @@ describe('Arbitrum Sepolia to Monad Testnet Swap', () => {
             expect(srcBalanceChange).toBeGreaterThanOrEqual(swapAmount)
 
             console.log('🎉 WETH → WMON cross-chain swap completed successfully!')
-        }, 300000) // 5 minute timeout for real testnet
+        })
     })
 })
 
@@ -417,8 +410,10 @@ async function initChain(
             cnf.wrappedNative,
             Address.fromBigInt(0n).toString(), // accessToken,
             deployer.address, // owner
-            60 * 5, // src rescue delay (5 min for testnet)
-            60 * 5 // dst rescue delay (5 min for testnet)
+            // 60 * 5, // src rescue delay (5 min for testnet)
+            // 60 * 5 // dst rescue delay (5 min for testnet)
+            60 * 30, // src rescue delay
+            60 * 30 // dst rescue delay
         ],
         provider,
         deployer
