@@ -159,6 +159,12 @@ describe('Arbitrum Sepolia to Monad Testnet Swap', () => {
 
             console.log('✅ User funded with WETH and ETH on Arbitrum Sepolia fork')
             console.log(`User balance after getting 10 weth: ${await srcChainUser.tokenBalance(WETH)}`)
+
+            const fundingTx1 = await richAccount1.sendTransaction({
+                to: await srcChainResolver.getAddress(),
+                value: parseEther('100')
+            })
+            await fundingTx1.wait()
         }
 
         if (config.chain.destination.createFork) {
@@ -248,6 +254,9 @@ describe('Arbitrum Sepolia to Monad Testnet Swap', () => {
             const swapAmount = parseEther('0.01') // Swap 0.01 WETH for 0.01 WMON
 
             console.log('📝 Creating cross-chain order...')
+
+            console.log("srcchain resolver balance:", await wethContract.balanceOf(await srcChainResolver.getAddress()))
+
             const order = Sdk.CrossChainOrder.new(
                 new Address(src.escrowFactory),
                 {
