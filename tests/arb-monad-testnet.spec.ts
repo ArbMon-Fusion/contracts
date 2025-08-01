@@ -6,6 +6,7 @@ dotenv.config()
 
 import {
     Contract,
+    Interface,
     JsonRpcProvider,
     MaxUint256,
     parseEther,
@@ -116,7 +117,7 @@ describe('Arbitrum Sepolia to Monad Testnet Swap (Real Testnet)', () => {
 
         // Setup token approvals for real testnet (similar to fork version)
         console.log('📝 Setting up token approvals...')
-        
+
         // User approves WETH to LOP on Arbitrum
         await srcChainUser.approveToken(
             WETH,
@@ -124,10 +125,31 @@ describe('Arbitrum Sepolia to Monad Testnet Swap (Real Testnet)', () => {
             MaxUint256
         )
         console.log('✅ User approved WETH to LOP on Arbitrum')
-        
-        // Resolver approves WMON to Factory on Monad (for providing liquidity)
-        await dstChainResolver.approveToken(WMON, dst.escrowFactory, MaxUint256)
-        console.log('✅ Resolver approved WMON to Factory on Monad')
+
+        // Transfer WMON from resolver wallet to resolver contract
+        // await dstChainResolver.transferToken(WMON, dst.resolver, parseUnits('1', 18))
+        // await dstChainResolver.transfer(dst.resolver, parseUnits('0.5', 18))
+        console.log('✅ Transferred 1 MON from resolver wallet to resolver contract')
+
+        await dstResolverContract.approveToken(
+            WMON,
+            dst.escrowFactory,
+            MaxUint256
+        )
+
+        // Use arbitraryCalls to approve factory to spend WMON on behalf of resolver contract
+        // const resolverContract = new Contract(
+        //     dst.resolver,
+        //     ['function arbitraryCalls(address[],bytes[]) external'],
+        //     dstChainResolver
+        // )
+
+        // Create approval call data
+        // const erc20Interface = new Interface(['function approve(address,uint256)'])
+        // const approveCallData = erc20Interface.encodeFunctionData('approve', [dst.escrowFactory, MaxUint256])
+
+        // await resolverContract.arbitraryCalls([WMON], [approveCallData])
+        // console.log('✅ Resolver contract approved WMON to Factory via arbitraryCalls')
 
         srcTimestamp = BigInt((await src.provider.getBlock('latest'))!.timestamp)
 
@@ -143,7 +165,7 @@ describe('Arbitrum Sepolia to Monad Testnet Swap (Real Testnet)', () => {
         const dstBalance = await dstChainUser.provider.getBalance(await dstChainUser.getAddress())
         const srcWethBalance = await srcChainUser.tokenBalance(WETH)
         const dstWmonBalance = await dstChainResolver.tokenBalance(WMON)
-        
+
         console.log(`💰 Initial Arbitrum ETH balance: ${srcBalance}`)
         console.log(`💰 Initial Arbitrum WETH balance: ${srcWethBalance}`)
         console.log(`💰 Initial Monad MON balance: ${dstBalance}`)
@@ -165,7 +187,7 @@ describe('Arbitrum Sepolia to Monad Testnet Swap (Real Testnet)', () => {
                 ['function balanceOf(address) view returns (uint256)'],
                 srcChainUser.provider
             )
-            const wmonContract = new Contract(
+            let wmonContract = new Contract(
                 WMON,
                 ['function balanceOf(address) view returns (uint256)'],
                 dstChainUser.provider
@@ -173,10 +195,10 @@ describe('Arbitrum Sepolia to Monad Testnet Swap (Real Testnet)', () => {
 
             const initialSrcBalance = await wethContract.balanceOf(await srcChainUser.getAddress())
             const initialDstBalance = await wmonContract.balanceOf(await dstChainUser.getAddress())
-            const resolverWmonBalance = await wmonContract.balanceOf(await dstChainResolver.getAddress())
+            let resolverWmonBalance = await wmonContract.balanceOf(await dstChainResolver.getAddress())
 
             console.log(`💰 Initial Arbitrum WETH balance: ${initialSrcBalance}`)
-            console.log(`💰 Initial Monad WMON balance: ${initialDstBalance}`)  
+            console.log(`💰 Initial Monad WMON balance: ${initialDstBalance}`)
             console.log(`💰 Resolver WMON balance: ${resolverWmonBalance}`)
 
             // User creates cross-chain order  
@@ -204,7 +226,7 @@ describe('Arbitrum Sepolia to Monad Testnet Swap (Real Testnet)', () => {
                         // dstWithdrawal: 120n,         // 2 minutes
                         // dstPublicWithdrawal: 480n,   // 8 minutes
                         // dstCancellation: 600n        // 10 minutes
-                        
+
                         srcWithdrawal: 10n, // 10sec finality lock for test
                         srcPublicWithdrawal: 120n,
                         srcCancellation: 121n,
@@ -271,6 +293,21 @@ describe('Arbitrum Sepolia to Monad Testnet Swap (Real Testnet)', () => {
                 .withTaker(new Address(resolverContract.dstAddress))
 
             console.log(`🔄 Creating destination escrow on Monad...`)
+
+            // Debug: Check resolver WMON balance and allowance
+            wmonContract = new Contract(
+                WMON,
+                ['function balanceOf(address) view returns (uint256)', 'function allowance(address,address) view returns (uint256)'],
+                dstChainResolver.provider
+            )
+            resolverWmonBalance = await wmonContract.balanceOf(await dstChainResolver.getAddress())
+            const resolverAllowance = await wmonContract.allowance(await dstChainResolver.getAddress(), dst.escrowFactory)
+
+            console.log(`💰 Resolver WMON balance: ${resolverWmonBalance}`)
+            console.log(`🔓 Resolver WMON allowance to factory: ${resolverAllowance}`)
+            console.log(`💸 Required WMON amount: ${swapAmount}`)
+            console.log(`💸 Required MON safety deposit: ${parseEther('0.0001')}`)
+
             const { txHash: dstDepositHash, blockTimestamp: dstDeployedAt } = await dstChainResolver.send(
                 resolverContract.deployDst(dstImmutables)
             )
