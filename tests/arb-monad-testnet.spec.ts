@@ -110,10 +110,6 @@ describe('Arbitrum Sepolia to Monad Testnet Swap (Real Testnet)', () => {
         srcFactory = new EscrowFactory(src.provider, src.escrowFactory)
         dstFactory = new EscrowFactory(dst.provider, dst.escrowFactory)
 
-        // For real testnet, use resolver private key instead of impersonation
-        // The resolver wallet IS the resolver contract owner
-        srcResolverContract = srcChainResolver  // Use resolver private key
-        dstResolverContract = dstChainResolver  // Use resolver private key
 
         // Setup token approvals for real testnet (similar to fork version)
         console.log('📝 Setting up token approvals...')
@@ -126,30 +122,23 @@ describe('Arbitrum Sepolia to Monad Testnet Swap (Real Testnet)', () => {
         )
         console.log('✅ User approved WETH to LOP on Arbitrum')
 
-        // Transfer WMON from resolver wallet to resolver contract
-        // await dstChainResolver.transferToken(WMON, dst.resolver, parseUnits('1', 18))
-        // await dstChainResolver.transfer(dst.resolver, parseUnits('0.5', 18))
-        console.log('✅ Transferred 1 MON from resolver wallet to resolver contract')
 
-        await dstResolverContract.approveToken(
-            WMON,
-            dst.escrowFactory,
-            MaxUint256
-        )
 
         // Use arbitraryCalls to approve factory to spend WMON on behalf of resolver contract
-        // const resolverContract = new Contract(
-        //     dst.resolver,
-        //     ['function arbitraryCalls(address[],bytes[]) external'],
-        //     dstChainResolver
-        // )
-
+        const resolverInterface = new Interface(['function arbitraryCalls(address[],bytes[]) external'])
+        const erc20Interface = new Interface(['function approve(address,uint256)'])
+        
         // Create approval call data
-        // const erc20Interface = new Interface(['function approve(address,uint256)'])
-        // const approveCallData = erc20Interface.encodeFunctionData('approve', [dst.escrowFactory, MaxUint256])
-
-        // await resolverContract.arbitraryCalls([WMON], [approveCallData])
-        // console.log('✅ Resolver contract approved WMON to Factory via arbitraryCalls')
+        const approveCallData = erc20Interface.encodeFunctionData('approve', [dst.escrowFactory, MaxUint256])
+        
+        // Create arbitraryCalls transaction
+        const arbitraryCallsData = resolverInterface.encodeFunctionData('arbitraryCalls', [[WMON], [approveCallData]])
+        
+        await dstChainResolver.send({
+            to: dst.resolver,
+            data: arbitraryCallsData
+        })
+        console.log('✅ Resolver contract approved WMON to Factory via arbitraryCalls')
 
         srcTimestamp = BigInt((await src.provider.getBlock('latest'))!.timestamp)
 
