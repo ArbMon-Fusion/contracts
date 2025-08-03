@@ -93,10 +93,12 @@ describe('Arbitrum Sepolia to Monad Testnet Swap', () => {
         srcFactory = new EscrowFactory(src.provider, src.escrowFactory)
         dstFactory = new EscrowFactory(dst.provider, dst.escrowFactory)
 
+        console.log("src resolver address", src.resolver)
+
         srcResolverContract = await Wallet.fromAddress(src.resolver, src.provider)
         dstResolverContract = await Wallet.fromAddress(dst.resolver, dst.provider)
 
-
+        console.log("srcChainResolver and srcResolverContract", await srcChainResolver.getAddress(), await srcResolverContract.getAddress())
 
         // Fund accounts on forks if needed
         if (config.chain.source.createFork) {
@@ -150,6 +152,12 @@ describe('Arbitrum Sepolia to Monad Testnet Swap', () => {
 
             console.log('✅ User funded with WETH and ETH on Arbitrum Sepolia fork')
             console.log(`User balance after getting 10 weth: ${await srcChainUser.tokenBalance(WETH)}`)
+
+            const fundingTx1 = await richAccount1.sendTransaction({
+                to: await srcChainResolver.getAddress(),
+                value: parseEther('100')
+            })
+            await fundingTx1.wait()
         }
 
         if (config.chain.destination.createFork) {
@@ -171,7 +179,12 @@ describe('Arbitrum Sepolia to Monad Testnet Swap', () => {
             const wmonTransferTx = await wmonContract.transfer(await dstChainResolver.getAddress(), parseEther('10'))
             await wmonTransferTx.wait()
 
+<<<<<<< HEAD
             console.log(`dstChainResolver account token balance after taking 10 wmon: ${await wmonContract.balanceOf(dstChainResolver.getAddress())}`)
+=======
+
+
+>>>>>>> 1afe9c084c7cccc9615ad401d7f5f6e0db823300
             // Impersonate a rich account to fund test accounts
 
             await dst.provider.send('anvil_impersonateAccount', ['0x760afe86e5de5fa0ee542fc7b7b713e1c5425701'])
@@ -241,6 +254,9 @@ describe('Arbitrum Sepolia to Monad Testnet Swap', () => {
             const swapAmount = parseEther('0.01') // Swap 0.01 WETH for 0.01 WMON
 
             console.log('📝 Creating cross-chain order...')
+
+            console.log("srcchain resolver balance:", await wethContract.balanceOf(await srcChainResolver.getAddress()))
+
             const order = Sdk.CrossChainOrder.new(
                 new Address(src.escrowFactory),
                 {
@@ -389,6 +405,519 @@ describe('Arbitrum Sepolia to Monad Testnet Swap', () => {
             expect(srcBalanceChange).toBeGreaterThanOrEqual(swapAmount)
 
             console.log('🎉 WETH → WMON cross-chain swap completed successfully!')
+<<<<<<< HEAD
+=======
+        }, 300000) // 5 minute timeout for real testnet
+
+        it('should swap WETH -> WMON. Multiple fills. Fill 100%', async () => {
+
+            // Get initial token balances
+            const wethContract = new Contract(
+                WETH,
+                ['function balanceOf(address) view returns (uint256)'],
+                srcChainUser.provider
+            )
+            const wmonContract = new Contract(
+                WMON,
+                ['function balanceOf(address) view returns (uint256)'],
+                dstChainUser.provider
+            )
+
+            const initialSrcBalance = await wethContract.balanceOf(await srcChainUser.getAddress())
+            const initialDstBalance = await wmonContract.balanceOf(await dstChainUser.getAddress())
+
+
+            console.log("resolver address:", await dstChainResolver.getAddress())
+            console.log("resolver initial WMON token balance:", await wmonContract.balanceOf(await dstChainResolver.getAddress()))
+
+            console.log(`💰 Initial Arbitrum WETH balance: ${initialSrcBalance}`)
+            console.log(`💰 Initial Monad WMON balance: ${initialDstBalance}`)
+
+            // User creates order
+            // 11 secrets
+            const swapAmount = parseEther('0.01') // Swap 0.01 WETH for 0.01 WMON
+            const secrets = Array.from({ length: 11 }).map(() => uint8ArrayToHex(randomBytes(32))) // note: use crypto secure random number in the real world
+            const secretHashes = secrets.map((s) => Sdk.HashLock.hashSecret(s))
+            const leaves = Sdk.HashLock.getMerkleLeaves(secrets)
+            const order = Sdk.CrossChainOrder.new(
+                new Address(src.escrowFactory),
+                {
+                    salt: Sdk.randBigInt(1000n),
+                    maker: new Address(await srcChainUser.getAddress()),
+                    makingAmount: swapAmount,
+                    takingAmount: swapAmount,
+                    makerAsset: new Address(config.chain.source.tokens.WETH.address),
+                    takerAsset: new Address(config.chain.destination.tokens.WMON.address)
+                },
+                {
+                    hashLock: Sdk.HashLock.forMultipleFills(leaves),
+                    timeLocks: Sdk.TimeLocks.new({
+                        srcWithdrawal: 10n, // 10s finality lock for test
+                        srcPublicWithdrawal: 120n, // 2m for private withdrawal
+                        srcCancellation: 121n, // 1sec public withdrawal
+                        srcPublicCancellation: 122n, // 1sec private cancellation
+                        dstWithdrawal: 10n, // 10s finality lock for test
+                        dstPublicWithdrawal: 100n, // 100sec private withdrawal
+                        dstCancellation: 101n // 1sec public withdrawal
+                    }),
+                    srcChainId,
+                    dstChainId,
+                    srcSafetyDeposit: parseEther('0.001'),
+                    dstSafetyDeposit: parseEther('0.001')
+                },
+                {
+                    auction: new Sdk.AuctionDetails({
+                        initialRateBump: 0,
+                        points: [],
+                        duration: 120n,
+                        startTime: srcTimestamp
+                    }),
+                    whitelist: [
+                        {
+                            address: new Address(src.resolver),
+                            allowFrom: 0n
+                        }
+                    ],
+                    resolvingStartTime: 0n
+                },
+                {
+                    nonce: Sdk.randBigInt(UINT_40_MAX),
+                    allowPartialFills: true,
+                    allowMultipleFills: true
+                }
+            )
+
+            const signature = await srcChainUser.signOrder(srcChainId, order)
+            const orderHash = order.getOrderHash(srcChainId)
+            // Resolver fills order
+            const resolverContract = new Resolver(src.resolver, dst.resolver)
+
+            console.log(`[${srcChainId}]`, `Filling order ${orderHash}`)
+
+            const fillAmount = order.makingAmount
+            const idx = secrets.length - 1 // last index to fulfill
+            // Number((BigInt(secrets.length - 1) * (fillAmount - 1n)) / order.makingAmount)
+
+            const { txHash: orderFillHash, blockHash: srcDeployBlock } = await srcChainResolver.send(
+                resolverContract.deploySrc(
+                    srcChainId,
+                    order,
+                    signature,
+                    Sdk.TakerTraits.default()
+                        .setExtension(order.extension)
+                        .setInteraction(
+                            new Sdk.EscrowFactory(new Address(src.escrowFactory)).getMultipleFillInteraction(
+                                Sdk.HashLock.getProof(leaves, idx),
+                                idx,
+                                secretHashes[idx]
+                            )
+                        )
+                        .setAmountMode(Sdk.AmountMode.maker)
+                        .setAmountThreshold(order.takingAmount),
+                    fillAmount,
+                    Sdk.HashLock.fromString(secretHashes[idx])
+                )
+            )
+
+            console.log(`[${srcChainId}]`, `Order ${orderHash} filled for ${fillAmount} in tx ${orderFillHash}`)
+
+            const srcEscrowEvent = await srcFactory.getSrcDeployEvent(srcDeployBlock)
+
+            const dstImmutables = srcEscrowEvent[0]
+                .withComplement(srcEscrowEvent[1])
+                .withTaker(new Address(resolverContract.dstAddress))
+
+            console.log(`[${dstChainId}]`, `Depositing ${dstImmutables.amount} for order ${orderHash}`)
+            const { txHash: dstDepositHash, blockTimestamp: dstDeployedAt } = await dstChainResolver.send(
+                resolverContract.deployDst(dstImmutables)
+            )
+            console.log(`[${dstChainId}]`, `Created dst deposit for order ${orderHash} in tx ${dstDepositHash}`)
+
+            const secret = secrets[idx]
+
+            const ESCROW_SRC_IMPLEMENTATION = await srcFactory.getSourceImpl()
+            const ESCROW_DST_IMPLEMENTATION = await dstFactory.getDestinationImpl()
+
+            const srcEscrowAddress = new Sdk.EscrowFactory(new Address(src.escrowFactory)).getSrcEscrowAddress(
+                srcEscrowEvent[0],
+                ESCROW_SRC_IMPLEMENTATION
+            )
+
+            const dstEscrowAddress = new Sdk.EscrowFactory(new Address(dst.escrowFactory)).getDstEscrowAddress(
+                srcEscrowEvent[0],
+                srcEscrowEvent[1],
+                dstDeployedAt,
+                new Address(resolverContract.dstAddress),
+                ESCROW_DST_IMPLEMENTATION
+            )
+
+            await increaseTime(11) // finality lock passed
+            // User shares key after validation of dst escrow deployment
+            console.log(`[${dstChainId}]`, `Withdrawing funds for user from ${dstEscrowAddress}`)
+            await dstChainResolver.send(
+                resolverContract.withdraw('dst', dstEscrowAddress, secret, dstImmutables.withDeployedAt(dstDeployedAt))
+            )
+
+            console.log(`[${srcChainId}]`, `Withdrawing funds for resolver from ${srcEscrowAddress}`)
+            const { txHash: resolverWithdrawHash } = await srcChainResolver.send(
+                resolverContract.withdraw('src', srcEscrowAddress, secret, srcEscrowEvent[0])
+            )
+            console.log(
+                `[${srcChainId}]`,
+                `Withdrew funds for resolver from ${srcEscrowAddress} to ${src.resolver} in tx ${resolverWithdrawHash}`
+            )
+
+            // Check final token balances
+            const finalSrcBalance = await wethContract.balanceOf(await srcChainUser.getAddress())
+            const finalDstBalance = await wmonContract.balanceOf(await dstChainUser.getAddress())
+
+            console.log(`💰 Final Arbitrum WETH balance: ${finalSrcBalance}`)
+            console.log(`💰 Final Monad WMON balance: ${finalDstBalance}`)
+
+            // Verify swap occurred
+            const srcBalanceChange = initialSrcBalance - finalSrcBalance
+            const dstBalanceChange = finalDstBalance - initialDstBalance
+
+            console.log(`📊 WETH spent: ${srcBalanceChange}`)
+            console.log(`📊 WMON received: ${dstBalanceChange}`)
+
+            // User should have received WMON on destination
+            expect(dstBalanceChange).toBeGreaterThan(parseEther('0.009')) // Received close to 0.01 WMON
+
+            // User should have spent WETH on source
+            expect(srcBalanceChange).toBeGreaterThanOrEqual(swapAmount)
+
+            console.log('🎉 WETH → WMON cross-chain swap completed successfully!')
+        }, 300000) // 5 minute timeout for real testnet
+
+        it('should swap Ethereum USDC -> Bsc USDC. Multiple fills. Fill 50%', async () => {
+            // Get initial token balances
+            const wethContract = new Contract(
+                WETH,
+                ['function balanceOf(address) view returns (uint256)'],
+                srcChainUser.provider
+            )
+            const wmonContract = new Contract(
+                WMON,
+                ['function balanceOf(address) view returns (uint256)'],
+                dstChainUser.provider
+            )
+
+            const initialSrcBalance = await wethContract.balanceOf(await srcChainUser.getAddress())
+            const initialDstBalance = await wmonContract.balanceOf(await dstChainUser.getAddress())
+
+
+            console.log("resolver address:", await dstChainResolver.getAddress())
+            console.log("resolver initial WMON token balance:", await wmonContract.balanceOf(await dstChainResolver.getAddress()))
+
+            console.log(`💰 Initial Arbitrum WETH balance: ${initialSrcBalance}`)
+            console.log(`💰 Initial Monad WMON balance: ${initialDstBalance}`)
+
+            // User creates order
+            // 11 secrets
+            const swapAmount = parseEther('0.01') // Swap 0.01 WETH for 0.01 WMON
+            const secrets = Array.from({ length: 11 }).map(() => uint8ArrayToHex(randomBytes(32))) // note: use crypto secure random number in the real world
+            const secretHashes = secrets.map((s) => Sdk.HashLock.hashSecret(s))
+            const leaves = Sdk.HashLock.getMerkleLeaves(secrets)
+            const order = Sdk.CrossChainOrder.new(
+                new Address(src.escrowFactory),
+                {
+                    salt: Sdk.randBigInt(1000n),
+                    maker: new Address(await srcChainUser.getAddress()),
+                    makingAmount: swapAmount,
+                    takingAmount: swapAmount,
+                    makerAsset: new Address(config.chain.source.tokens.WETH.address),
+                    takerAsset: new Address(config.chain.destination.tokens.WMON.address)
+                },
+                {
+                    hashLock: Sdk.HashLock.forMultipleFills(leaves),
+                    timeLocks: Sdk.TimeLocks.new({
+                        srcWithdrawal: 10n, // 10s finality lock for test
+                        srcPublicWithdrawal: 120n, // 2m for private withdrawal
+                        srcCancellation: 121n, // 1sec public withdrawal
+                        srcPublicCancellation: 122n, // 1sec private cancellation
+                        dstWithdrawal: 10n, // 10s finality lock for test
+                        dstPublicWithdrawal: 100n, // 100sec private withdrawal
+                        dstCancellation: 101n // 1sec public withdrawal
+                    }),
+                    srcChainId,
+                    dstChainId,
+                    srcSafetyDeposit: parseEther('0.001'),
+                    dstSafetyDeposit: parseEther('0.001')
+                },
+                {
+                    auction: new Sdk.AuctionDetails({
+                        initialRateBump: 0,
+                        points: [],
+                        duration: 120n,
+                        startTime: srcTimestamp
+                    }),
+                    whitelist: [
+                        {
+                            address: new Address(src.resolver),
+                            allowFrom: 0n
+                        }
+                    ],
+                    resolvingStartTime: 0n
+                },
+                {
+                    nonce: Sdk.randBigInt(UINT_40_MAX),
+                    allowPartialFills: true,
+                    allowMultipleFills: true
+                }
+            )
+
+            const signature = await srcChainUser.signOrder(srcChainId, order)
+            const orderHash = order.getOrderHash(srcChainId)
+            // Resolver fills order
+            const resolverContract = new Resolver(src.resolver, dst.resolver)
+
+            console.log(`[${srcChainId}]`, `Filling order ${orderHash}`)
+
+            const fillAmount = order.makingAmount / 2n
+            const idx = Number((BigInt(secrets.length - 1) * (fillAmount - 1n)) / order.makingAmount)
+
+            const { txHash: orderFillHash, blockHash: srcDeployBlock } = await srcChainResolver.send(
+                resolverContract.deploySrc(
+                    srcChainId,
+                    order,
+                    signature,
+                    Sdk.TakerTraits.default()
+                        .setExtension(order.extension)
+                        .setInteraction(
+                            new Sdk.EscrowFactory(new Address(src.escrowFactory)).getMultipleFillInteraction(
+                                Sdk.HashLock.getProof(leaves, idx),
+                                idx,
+                                secretHashes[idx]
+                            )
+                        )
+                        .setAmountMode(Sdk.AmountMode.maker)
+                        .setAmountThreshold(order.takingAmount),
+                    fillAmount,
+                    Sdk.HashLock.fromString(secretHashes[idx])
+                )
+            )
+
+            console.log(`[${srcChainId}]`, `Order ${orderHash} filled for ${fillAmount} in tx ${orderFillHash}`)
+
+            const srcEscrowEvent = await srcFactory.getSrcDeployEvent(srcDeployBlock)
+
+            const dstImmutables = srcEscrowEvent[0]
+                .withComplement(srcEscrowEvent[1])
+                .withTaker(new Address(resolverContract.dstAddress))
+
+            console.log(`[${dstChainId}]`, `Depositing ${dstImmutables.amount} for order ${orderHash}`)
+            const { txHash: dstDepositHash, blockTimestamp: dstDeployedAt } = await dstChainResolver.send(
+                resolverContract.deployDst(dstImmutables)
+            )
+            console.log(`[${dstChainId}]`, `Created dst deposit for order ${orderHash} in tx ${dstDepositHash}`)
+
+            const secret = secrets[idx]
+
+            const ESCROW_SRC_IMPLEMENTATION = await srcFactory.getSourceImpl()
+            const ESCROW_DST_IMPLEMENTATION = await dstFactory.getDestinationImpl()
+
+            const srcEscrowAddress = new Sdk.EscrowFactory(new Address(src.escrowFactory)).getSrcEscrowAddress(
+                srcEscrowEvent[0],
+                ESCROW_SRC_IMPLEMENTATION
+            )
+
+            const dstEscrowAddress = new Sdk.EscrowFactory(new Address(dst.escrowFactory)).getDstEscrowAddress(
+                srcEscrowEvent[0],
+                srcEscrowEvent[1],
+                dstDeployedAt,
+                new Address(resolverContract.dstAddress),
+                ESCROW_DST_IMPLEMENTATION
+            )
+
+            await increaseTime(11) // finality lock passed
+            // User shares key after validation of dst escrow deployment
+            console.log(`[${dstChainId}]`, `Withdrawing funds for user from ${dstEscrowAddress}`)
+            await dstChainResolver.send(
+                resolverContract.withdraw('dst', dstEscrowAddress, secret, dstImmutables.withDeployedAt(dstDeployedAt))
+            )
+
+            console.log(`[${srcChainId}]`, `Withdrawing funds for resolver from ${srcEscrowAddress}`)
+            const { txHash: resolverWithdrawHash } = await srcChainResolver.send(
+                resolverContract.withdraw('src', srcEscrowAddress, secret, srcEscrowEvent[0])
+            )
+            console.log(
+                `[${srcChainId}]`,
+                `Withdrew funds for resolver from ${srcEscrowAddress} to ${src.resolver} in tx ${resolverWithdrawHash}`
+            )
+
+            // Check final token balances
+            const finalSrcBalance = await wethContract.balanceOf(await srcChainUser.getAddress())
+            const finalDstBalance = await wmonContract.balanceOf(await dstChainUser.getAddress())
+
+            console.log(`💰 Final Arbitrum WETH balance: ${finalSrcBalance}`)
+            console.log(`💰 Final Monad WMON balance: ${finalDstBalance}`)
+
+            // Verify swap occurred
+            const srcBalanceChange = initialSrcBalance - finalSrcBalance
+            const dstBalanceChange = finalDstBalance - initialDstBalance
+
+            console.log(`📊 WETH spent: ${srcBalanceChange}`)
+            console.log(`📊 WMON received: ${dstBalanceChange}`)
+
+            // User should have received WMON on destination
+            expect(dstBalanceChange).toBeGreaterThan(parseEther('0.0005')) // Received close to 0.0005 WMON
+
+            // User should have spent WETH on source
+            expect(srcBalanceChange).toBeGreaterThanOrEqual(swapAmount / 2n)
+
+            console.log('🎉 WETH → WMON cross-chain swap completed successfully!')
+        }, 300000) // 5 minute timeout for real testnet
+    })
+
+    describe('Cancel', () => {
+        it('should cancel swap Ethereum USDC -> Bsc USDC', async () => {
+            // Get initial token balances
+            const wethContract = new Contract(
+                WETH,
+                ['function balanceOf(address) view returns (uint256)'],
+                srcChainUser.provider
+            )
+            const wmonContract = new Contract(
+                WMON,
+                ['function balanceOf(address) view returns (uint256)'],
+                dstChainUser.provider
+            )
+
+            const initialSrcBalance = await wethContract.balanceOf(await srcChainUser.getAddress())
+            const initialDstBalance = await wmonContract.balanceOf(await dstChainUser.getAddress())
+
+
+            console.log("resolver address:", await dstChainResolver.getAddress())
+            console.log("resolver initial WMON token balance:", await wmonContract.balanceOf(await dstChainResolver.getAddress()))
+
+            console.log(`💰 Initial Arbitrum WETH balance: ${initialSrcBalance}`)
+            console.log(`💰 Initial Monad WMON balance: ${initialDstBalance}`)
+
+            // User creates order
+            const swapAmount = parseEther('0.01') // Swap 0.01 WETH for 0.01 WMON
+            const hashLock = Sdk.HashLock.forSingleFill(uint8ArrayToHex(randomBytes(32))) // note: use crypto secure random number in real world
+            const order = Sdk.CrossChainOrder.new(
+                new Address(src.escrowFactory),
+                {
+                    salt: Sdk.randBigInt(1000n),
+                    maker: new Address(await srcChainUser.getAddress()),
+                    makingAmount: swapAmount,
+                    takingAmount: swapAmount,
+                    makerAsset: new Address(config.chain.source.tokens.WETH.address),
+                    takerAsset: new Address(config.chain.destination.tokens.WMON.address)
+                },
+                {
+                    hashLock,
+                    timeLocks: Sdk.TimeLocks.new({
+                        srcWithdrawal: 0n, // no finality lock for test
+                        srcPublicWithdrawal: 120n, // 2m for private withdrawal
+                        srcCancellation: 121n, // 1sec public withdrawal
+                        srcPublicCancellation: 122n, // 1sec private cancellation
+                        dstWithdrawal: 0n, // no finality lock for test
+                        dstPublicWithdrawal: 100n, // 100sec private withdrawal
+                        dstCancellation: 101n // 1sec public withdrawal
+                    }),
+                    srcChainId,
+                    dstChainId,
+                    srcSafetyDeposit: parseEther('0.001'),
+                    dstSafetyDeposit: parseEther('0.001')
+                },
+                {
+                    auction: new Sdk.AuctionDetails({
+                        initialRateBump: 0,
+                        points: [],
+                        duration: 120n,
+                        startTime: srcTimestamp
+                    }),
+                    whitelist: [
+                        {
+                            address: new Address(src.resolver),
+                            allowFrom: 0n
+                        }
+                    ],
+                    resolvingStartTime: 0n
+                },
+                {
+                    nonce: Sdk.randBigInt(UINT_40_MAX),
+                    allowPartialFills: false,
+                    allowMultipleFills: false
+                }
+            )
+
+            const signature = await srcChainUser.signOrder(srcChainId, order)
+            const orderHash = order.getOrderHash(srcChainId)
+            // Resolver fills order
+            const resolverContract = new Resolver(src.resolver, dst.resolver)
+
+            console.log(`[${srcChainId}]`, `Filling order ${orderHash}`)
+
+            const fillAmount = order.makingAmount
+            const { txHash: orderFillHash, blockHash: srcDeployBlock } = await srcChainResolver.send(
+                resolverContract.deploySrc(
+                    srcChainId,
+                    order,
+                    signature,
+                    Sdk.TakerTraits.default()
+                        .setExtension(order.extension)
+                        .setAmountMode(Sdk.AmountMode.maker)
+                        .setAmountThreshold(order.takingAmount),
+                    fillAmount
+                )
+            )
+
+            console.log(`[${srcChainId}]`, `Order ${orderHash} filled for ${fillAmount} in tx ${orderFillHash}`)
+
+            const srcEscrowEvent = await srcFactory.getSrcDeployEvent(srcDeployBlock)
+
+            const dstImmutables = srcEscrowEvent[0]
+                .withComplement(srcEscrowEvent[1])
+                .withTaker(new Address(resolverContract.dstAddress))
+
+            console.log(`[${dstChainId}]`, `Depositing ${dstImmutables.amount} for order ${orderHash}`)
+            const { txHash: dstDepositHash, blockTimestamp: dstDeployedAt } = await dstChainResolver.send(
+                resolverContract.deployDst(dstImmutables)
+            )
+            console.log(`[${dstChainId}]`, `Created dst deposit for order ${orderHash} in tx ${dstDepositHash}`)
+
+            const ESCROW_SRC_IMPLEMENTATION = await srcFactory.getSourceImpl()
+            const ESCROW_DST_IMPLEMENTATION = await dstFactory.getDestinationImpl()
+
+            const srcEscrowAddress = new Sdk.EscrowFactory(new Address(src.escrowFactory)).getSrcEscrowAddress(
+                srcEscrowEvent[0],
+                ESCROW_SRC_IMPLEMENTATION
+            )
+
+            const dstEscrowAddress = new Sdk.EscrowFactory(new Address(dst.escrowFactory)).getDstEscrowAddress(
+                srcEscrowEvent[0],
+                srcEscrowEvent[1],
+                dstDeployedAt,
+                new Address(resolverContract.dstAddress),
+                ESCROW_DST_IMPLEMENTATION
+            )
+
+            await increaseTime(125)
+            // user does not share secret, so cancel both escrows
+            console.log(`[${dstChainId}]`, `Cancelling dst escrow ${dstEscrowAddress}`)
+            await dstChainResolver.send(
+                resolverContract.cancel('dst', dstEscrowAddress, dstImmutables.withDeployedAt(dstDeployedAt))
+            )
+
+            console.log(`[${srcChainId}]`, `Cancelling src escrow ${srcEscrowAddress}`)
+            const { txHash: cancelSrcEscrow } = await srcChainResolver.send(
+                resolverContract.cancel('src', srcEscrowAddress, srcEscrowEvent[0])
+            )
+            console.log(`[${srcChainId}]`, `Cancelled src escrow ${srcEscrowAddress} in tx ${cancelSrcEscrow}`)
+
+            const resultSrcBalance = await wethContract.balanceOf(await srcChainUser.getAddress())
+            const resultDstBalance = await wmonContract.balanceOf(await dstChainUser.getAddress())
+
+            console.log(`💰 Initial Arbitrum WETH balance: ${resultSrcBalance}`)
+            console.log(`💰 Initial Monad WMON balance: ${resultDstBalance}`)
+
+            expect(initialSrcBalance).toEqual(resultSrcBalance)
+            expect(initialDstBalance).toEqual(resultDstBalance)
+>>>>>>> 1afe9c084c7cccc9615ad401d7f5f6e0db823300
         })
     })
 })

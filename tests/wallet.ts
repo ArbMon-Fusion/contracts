@@ -107,8 +107,8 @@ export class Wallet {
         if (receipt && receipt.status) {
             return {
                 txHash: receipt.hash,
-                blockTimestamp: BigInt((await res.getBlock())!.timestamp),
-                blockHash: res.blockHash as string
+                blockTimestamp: BigInt((await receipt.getBlock())!.timestamp),
+                blockHash: receipt.blockHash!
             }
         }
 
